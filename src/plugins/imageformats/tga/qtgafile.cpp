@@ -152,7 +152,7 @@ QTgaFile::QTgaFile(QIODevice *device)
         mErrorMessage = tr("Image header read failed");
         return;
     }
-    if (mHeader[ImageType] != 2)
+    if (mHeader[ImageType] != 2 && mHeader[ImageType] != 10)
     {
         // TODO: should support other image types
         mErrorMessage = tr("Image type not supported");
@@ -248,25 +248,103 @@ QImage QTgaFile::readImage()
         reader = new Tga24Reader();
     else if (bitsPerPixel == 32)
         reader = new Tga32Reader();
-    TgaReader &read = *reader;
 
+    if (mHeader[ImageType] == 10)
+    {
+        readRLEImage(imageWidth, imageHeight, yCorner, reader, im);
+    }
+    else
+    {
+        TgaReader &read = *reader;
+
+        // For now only deal with yCorner, since no one uses xCorner == 1
+        // Also this is upside down, since Qt has the origin flipped
+        if (yCorner)
+        {
+            for (int y = 0; y < imageHeight; ++y)
+                for (int x = 0; x < imageWidth; ++x)
+                    im.setPixel(x, y, read(mDevice));
+        }
+        else
+        {
+            for (int y = imageHeight - 1; y >= 0; --y)
+                for (int x = 0; x < imageWidth; ++x)
+                    im.setPixel(x, y, read(mDevice));
+        }
+    }
+    delete reader;
+
+    // TODO: add processing of TGA extension information - ie TGA 2.0 files
+    return im;
+}
+
+void QTgaFile::readRLEImage(int imageWidth, int imageHeight, unsigned char yCorner, TgaReader* pReader, QImage& im)
+{
+    TgaReader &read = *pReader;
+
+    char ch;
+    mDevice->getChar(&ch);
+    int numPixelsToWrite = (ch & 0x7f) + 1;
+    bool bRLE = (ch & 0x80) != 0;
+    QRgb pixel{};
+    if (bRLE)
+    {
+        pixel = read(mDevice);
+    }
     // For now only deal with yCorner, since no one uses xCorner == 1
     // Also this is upside down, since Qt has the origin flipped
     if (yCorner)
     {
         for (int y = 0; y < imageHeight; ++y)
             for (int x = 0; x < imageWidth; ++x)
-                im.setPixel(x, y, read(mDevice));
+            {
+                numPixelsToWrite--;
+                if (bRLE)
+                {
+                    im.setPixel(x, y, pixel);
+                }
+                else
+                {
+                    im.setPixel(x, y, read(mDevice));
+                }
+
+                if (numPixelsToWrite == 0)
+                {
+                    mDevice->getChar(&ch);
+                    numPixelsToWrite = (ch & 0x7f) + 1;
+                    bRLE = (ch & 0x80) != 0;
+                    if (bRLE)
+                    {
+                        pixel = read(mDevice);
+                    }
+                }
+            }
     }
     else
     {
         for (int y = imageHeight - 1; y >= 0; --y)
             for (int x = 0; x < imageWidth; ++x)
-                im.setPixel(x, y, read(mDevice));
+            {
+                numPixelsToWrite--;
+                if (bRLE)
+                {
+                    im.setPixel(x, y, pixel);
+                }
+                else
+                {
+                    im.setPixel(x, y, read(mDevice));
+                }
+
+                if (numPixelsToWrite == 0)
+                {
+                    mDevice->getChar(&ch);
+                    numPixelsToWrite = (ch & 0x7f) + 1;
+                    bRLE = (ch & 0x80) != 0;
+                    if (bRLE)
+                    {
+                        pixel = read(mDevice);
+                    }
+                }
+            }
     }
-
-    delete reader;
-
-    // TODO: add processing of TGA extension information - ie TGA 2.0 files
-    return im;
 }
