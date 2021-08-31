@@ -47,6 +47,7 @@
 QT_BEGIN_NAMESPACE
 
 class QIODevice;
+struct TgaReader;
 
 class QTgaFile
 {
@@ -96,6 +97,7 @@ public:
 
 private:
     static inline quint16 littleEndianInt(const unsigned char *d);
+    void readRLEImage(int imageWidth, int imageHeight, unsigned char yCorner, TgaReader* pReader, QImage& im);
 
     QString mErrorMessage;
     unsigned char mHeader[HeaderSize];
